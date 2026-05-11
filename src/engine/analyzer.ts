@@ -265,8 +265,8 @@ export function estimateSurrenderValues(contracts: InsuranceContract[]): Surrend
     let maxRatio = 0
     let basis = ''
 
-    // 무해지형/해지환급금미지급형 → 해약환급금 없음
-    if (/무해지|해지환급금미지급/.test(contract.productName)) {
+    // 무해지형/해지환급금미지급형/(무) 표기 → 해약환급금 없음
+    if (/무해지|해지환급금미지급|\(무\)/.test(contract.productName)) {
       return {
         contractId: contract.id,
         productName: contract.productName,

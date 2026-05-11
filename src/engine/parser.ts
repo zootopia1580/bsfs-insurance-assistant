@@ -171,6 +171,37 @@ function extractContractRenewalMap(text: string): Map<string, boolean> {
 }
 
 // ────────────────────────────────────────────
+// 상품명 퍼지 매칭 (섹션 3 renewalMap ↔ 섹션 6 productName)
+// 뱅크샐러드에서 섹션별 상품명 표기가 미묘하게 다를 수 있음.
+// 우선순위: 완전일치 → (무) 제거 후 일치 → 포함 관계
+// ────────────────────────────────────────────
+function findInRenewalMap(
+  productName: string,
+  renewalMap: Map<string, boolean>
+): boolean | undefined {
+  // 1순위: 완전 일치
+  if (renewalMap.has(productName)) return renewalMap.get(productName)!
+
+  const normalize = (s: string) =>
+    s.replace(/^\s*\(무\)\s*/, '').replace(/\s+/g, ' ').trim()
+  const normName = normalize(productName)
+
+  for (const [key, val] of renewalMap) {
+    const normKey = normalize(key)
+
+    // 2순위: (무) 제거 + 공백 정규화 후 일치
+    if (normKey === normName) return val
+
+    // 3순위: 포함 관계 (단 4자 이상이어야 오매칭 방지)
+    if (normKey.length >= 4 && normName.length >= 4) {
+      if (normKey.includes(normName) || normName.includes(normKey)) return val
+    }
+  }
+
+  return undefined
+}
+
+// ────────────────────────────────────────────
 // 특약 리스트 ❶❷❸❹ 섹션 파싱 (메인 경로)
 // 핵심: 각 번호의 첫 번째 등장만 사용 (중복 데이터 무시)
 // ────────────────────────────────────────────
@@ -250,7 +281,8 @@ function parseSingleRiderSection(
       }
     }
 
-    // 보장기간 → 만기나이 (같은 줄 또는 다음 줄에 날짜가 올 수 있음)
+    // 보장기간 → 만기나이
+    // 포맷: "보장기간" 단독 줄 + 다음 줄 날짜, 또는 "보장기간 / 2085. 01. 01 (100세)" 인라인
     if (/보장기간/.test(line)) {
       const combined = line + ' ' + (lines[i + 1] ?? '')
       if (/9999|8025|종신/.test(combined)) {
@@ -266,51 +298,47 @@ function parseSingleRiderSection(
       continue
     }
 
-    // 월 보험료 (같은 줄 또는 다음 줄에 금액이 올 수 있음)
+    // 월 보험료 — "월 보험료\n금액", "월 보험료 / 금액", "월 보험료 금액" 세 가지 포맷
     if (/^월\s*보험료$/.test(line)) {
-      const nextLine = lines[i + 1] ?? ''
-      contract.monthlyPremium = parseAmountWon(nextLine)
-      i++ // 다음 줄 소비
+      contract.monthlyPremium = parseAmountWon(lines[i + 1] ?? '')
+      i++
       continue
     }
-    if (/^월\s*보험료\s+[0-9]/.test(line)) {
+    if (/^월\s*보험료\s*[\/／]/.test(line) || /^월\s*보험료\s+[0-9]/.test(line)) {
       contract.monthlyPremium = parseAmountWon(line)
       continue
     }
 
-    // 납입완료 보험료 (같은 줄 또는 다음 줄)
+    // 납입완료 보험료
     if (/납입완료\s*보험료$/.test(line)) {
-      const nextLine = lines[i + 1] ?? ''
-      contract.totalPaid = parseAmountWon(nextLine)
+      contract.totalPaid = parseAmountWon(lines[i + 1] ?? '')
       i++
       continue
     }
-    if (/납입완료\s*보험료\s+[0-9]/.test(line)) {
+    if (/납입완료\s*보험료\s*[\/／]/.test(line) || /납입완료\s*보험료\s+[0-9]/.test(line)) {
       contract.totalPaid = parseAmountWon(line)
       continue
     }
 
-    // 총 보험료 — paymentTerm 역산에 사용 (같은 줄 또는 다음 줄)
+    // 총 보험료 — paymentTerm 역산용
     if (/^총\s*보험료$/.test(line)) {
-      const nextLine = lines[i + 1] ?? ''
-      const total = parseAmountWon(nextLine)
+      const total = parseAmountWon(lines[i + 1] ?? '')
       if (total > 0) { (contract as Record<string, unknown>)._totalPremium = total; i++ }
       continue
     }
-    if (/^총\s*보험료\s+[0-9]/.test(line)) {
+    if (/^총\s*보험료\s*[\/／]/.test(line) || /^총\s*보험료\s+[0-9]/.test(line)) {
       const total = parseAmountWon(line)
       if (total > 0) (contract as Record<string, unknown>)._totalPremium = total
       continue
     }
 
-    // 납입예정 보험료 — 0원이면 납입완료로 판정
+    // 납입예정 보험료 — 0원이면 납입완료
     if (/납입예정\s*보험료$/.test(line)) {
-      const nextLine = lines[i + 1] ?? ''
-      ;(contract as Record<string, unknown>)._expectedPremium = parseAmountWon(nextLine)
+      ;(contract as Record<string, unknown>)._expectedPremium = parseAmountWon(lines[i + 1] ?? '')
       i++
       continue
     }
-    if (/납입예정\s*보험료\s+[0-9]/.test(line)) {
+    if (/납입예정\s*보험료\s*[\/／]/.test(line) || /납입예정\s*보험료\s+[0-9]/.test(line)) {
       ;(contract as Record<string, unknown>)._expectedPremium = parseAmountWon(line)
       continue
     }
@@ -378,9 +406,9 @@ function parseSingleRiderSection(
     }
   }
 
-  // 보험 계약 목록 섹션에서 추출한 갱신형/비갱신형 상태 적용 (최우선)
+  // 섹션 3 갱신형/비갱신형 태그 최우선 적용 (퍼지 매칭)
   if (contract.productName) {
-    const renewalFromMap = renewalMap.get(contract.productName)
+    const renewalFromMap = findInRenewalMap(contract.productName, renewalMap)
     if (renewalFromMap !== undefined) {
       contract.isRenewable = renewalFromMap
     }

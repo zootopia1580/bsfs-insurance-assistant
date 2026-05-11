@@ -539,6 +539,11 @@ function CoverageSection({ label, actual, target, riders, isExpanded, onToggle }
 }) {
   const ok = actual >= target
   const pct = Math.min((actual / target) * 100, 100)
+
+  // 80~99세 만기 담보: 실질 합산엔 제외되지만 UI에 별도 표시
+  const partialRiders = riders.filter(r => r.effectReason === '보장기간공백')
+  const partialTotal = partialRiders.reduce((s, r) => s + r.amount, 0)
+
   return (
     <div>
       <button onClick={onToggle} className="w-full text-left">
@@ -546,6 +551,9 @@ function CoverageSection({ label, actual, target, riders, isExpanded, onToggle }
           <span className="text-slate-500">{label}</span>
           <span className={ok ? 'text-emerald-400' : 'text-red-400'}>
             {actual.toLocaleString()}만
+            {partialTotal > 0 && (
+              <span className="text-amber-500/70 ml-1 text-[10px]">+{partialTotal.toLocaleString()}부분</span>
+            )}
             <span className="text-slate-700 ml-1">/ {target.toLocaleString()}만</span>
             <span className="text-slate-600 ml-1 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
           </span>
@@ -557,34 +565,67 @@ function CoverageSection({ label, actual, target, riders, isExpanded, onToggle }
       {isExpanded && (
         <div className="mt-1.5 space-y-1 pl-1 animate-in">
           {riders.length === 0 && <p className="text-[10px] text-slate-700 pl-1">해당 특약 없음</p>}
-          {riders.map((r, i) => (
-            <div key={i} className={`text-[10px] rounded px-2 py-1.5 border ${
-              r.isEffective ? 'bg-emerald-950/30 border-emerald-800/40'
-              : r.effectReason === '해당없음' ? 'bg-slate-800/20 border-slate-700/20 opacity-40'
-              : 'bg-slate-800/40 border-slate-700/40'
-            }`}>
-              <div className="text-slate-600 mb-0.5 truncate text-[9px]">{r.contractName}</div>
-              <div className="flex justify-between items-start gap-1">
-                <span className={`font-medium truncate ${r.isEffective ? 'text-emerald-300' : 'text-slate-500'}`}>
-                  {r.isEffective ? '✓' : r.effectReason === '해당없음' ? '—' : '✗'} {r.name}
-                </span>
-                <span className={`flex-shrink-0 font-medium ${r.isEffective ? 'text-emerald-400' : 'text-slate-600'}`}>
-                  {r.amount.toLocaleString()}만
-                </span>
+          {riders.map((r, i) => {
+            const isPartial = r.effectReason === '보장기간공백'
+            const isIrrelevant = r.effectReason === '해당없음'
+            return (
+              <div key={i} className={`text-[10px] rounded px-2 py-1.5 border ${
+                r.isEffective          ? 'bg-emerald-950/30 border-emerald-800/40'
+                : isPartial           ? 'bg-amber-950/20 border-amber-800/30'
+                : isIrrelevant        ? 'bg-slate-800/20 border-slate-700/20 opacity-40'
+                : 'bg-slate-800/40 border-slate-700/40'
+              }`}>
+                <div className="text-slate-600 mb-0.5 truncate text-[9px]">{r.contractName}</div>
+                <div className="flex justify-between items-start gap-1">
+                  <span className={`font-medium truncate ${
+                    r.isEffective ? 'text-emerald-300'
+                    : isPartial   ? 'text-amber-400/80'
+                    : 'text-slate-500'
+                  }`}>
+                    {r.isEffective ? '✓' : isIrrelevant ? '—' : isPartial ? '⚠' : '✗'} {r.name}
+                  </span>
+                  <span className={`flex-shrink-0 font-medium ${
+                    r.isEffective ? 'text-emerald-400'
+                    : isPartial   ? 'text-amber-500/70'
+                    : 'text-slate-600'
+                  }`}>
+                    {r.amount.toLocaleString()}만
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-600 mt-0.5">
+                  <span>{CATEGORY_LABEL[r.category] ?? r.category}</span>
+                  <span className="flex items-center gap-1.5">
+                    {r.expiryDate
+                      ? <span>{r.expiryDate.slice(0, 7)}</span>
+                      : r.expiryAge > 0
+                        ? <span>{r.expiryAge === 9999 ? '종신' : `~${r.expiryAge}세`}</span>
+                        : null}
+                    {/* 유효: 표시 없음 */}
+                    {/* 해당없음 */}
+                    {isIrrelevant && <span className="text-slate-600">미산정</span>}
+                    {/* 보장기간공백 (80~99세): OO세까지 부분인정 */}
+                    {isPartial && (
+                      <span className="text-amber-500/80 font-medium">
+                        {r.expiryAge}세까지 부분인정
+                      </span>
+                    )}
+                    {/* 그 외 무효 사유: → 실질 0원 */}
+                    {!r.isEffective && !isPartial && !isIrrelevant && (
+                      <span className="text-red-500/80 font-medium">
+                        {REASON_LABEL[r.effectReason] ?? r.effectReason} → 실질 0원
+                      </span>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between text-slate-600 mt-0.5">
-                <span>{CATEGORY_LABEL[r.category] ?? r.category}</span>
-                <span className="flex items-center gap-1.5">
-                  {r.expiryDate ? <span>{r.expiryDate.slice(0, 7)}</span>
-                    : r.expiryAge > 0 ? <span>{r.expiryAge === 9999 ? '종신' : `~${r.expiryAge}세`}</span> : null}
-                  {!r.isEffective && r.effectReason !== '해당없음' && (
-                    <span className="text-red-500/80 font-medium">{REASON_LABEL[r.effectReason] ?? r.effectReason} → 0</span>
-                  )}
-                  {r.effectReason === '해당없음' && <span className="text-slate-600">{REASON_LABEL['해당없음']}</span>}
-                </span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
+          {/* 80~99세 부분인정 합계 안내 */}
+          {partialTotal > 0 && (
+            <p className="text-[9px] text-amber-600/60 pl-1 pt-0.5">
+              ⚠ 부분인정 {partialTotal.toLocaleString()}만원은 실질 합산에서 제외됩니다
+            </p>
+          )}
         </div>
       )}
     </div>
