@@ -151,6 +151,7 @@ export function DataPanel() {
     riderPremiumMap, setRiderPremium,
   } = useAppStore()
 
+  const [activeTab, setActiveTab] = useState<'analysis' | 'cards'>('analysis')
   const [expandedSection, setExpandedSection] = useState<'cancer' | 'brain' | 'heart' | null>(null)
   const [showAssist, setShowAssist] = useState(false)
   const [reaction, setReaction] = useState('')
@@ -195,6 +196,40 @@ export function DataPanel() {
 
   return (
     <aside className="w-72 flex-shrink-0 flex flex-col overflow-y-auto" style={{ background: '#0c1322', borderLeft: '1px solid rgba(255,255,255,0.05)' }}>
+
+      {/* 탭 버튼 */}
+      <div className="flex border-b border-white/[0.05]" style={{ background: '#0c1322' }}>
+        <button
+          onClick={() => setActiveTab('analysis')}
+          className={`flex-1 text-[10px] py-2.5 font-medium transition-colors ${
+            activeTab === 'analysis'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-600 hover:text-slate-400'
+          }`}
+        >
+          분석결과
+        </button>
+        <button
+          onClick={() => setActiveTab('cards')}
+          className={`flex-1 text-[10px] py-2.5 font-medium transition-colors ${
+            activeTab === 'cards'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-600 hover:text-slate-400'
+          }`}
+        >
+          보험카드
+        </button>
+      </div>
+
+      {activeTab === 'cards' && (
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+          {contracts.map((contract, idx) => (
+            <SidebarContractCard key={contract.id} contract={contract} idx={idx} />
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'analysis' && <>
 
       {/* 고객 요약 */}
       <div className="px-4 py-3 border-b border-white/[0.05]">
@@ -466,6 +501,7 @@ export function DataPanel() {
           </div>
         )}
       </div>
+      </>}
     </aside>
   )
 }
@@ -639,6 +675,111 @@ function ProblemBadge({ active, label }: { active: boolean; label: string }) {
         {active ? '!' : '✓'}
       </span>
       {label}
+    </div>
+  )
+}
+
+function SidebarContractCard({ contract, idx }: { contract: InsuranceContract; idx: number }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const RIDER_GROUPS_COMPACT = [
+    { key: 'cancer', label: '암', cats: ['cancer_general', 'cancer_expensive', 'cancer_minor'], color: 'text-red-400' },
+    { key: 'brain', label: '뇌', cats: ['cerebrovascular', 'stroke', 'brain_hemorrhage', 'specific_cerebrovascular'], color: 'text-blue-400' },
+    { key: 'heart', label: '심', cats: ['ischemic_heart', 'ami', 'specific_ischemic_heart'], color: 'text-amber-400' },
+    { key: 'loss', label: '실손', cats: ['loss'], color: 'text-sky-400' },
+    { key: 'surgery', label: '수술·장해', cats: ['surgery', 'disability'], color: 'text-slate-400' },
+    { key: 'other', label: '기타', cats: ['hospitalization', 'ci_gi', 'death', 'other'], color: 'text-slate-600' },
+  ]
+
+  const NARROW_CATS = ['brain_hemorrhage', 'stroke', 'ami', 'specific_cerebrovascular', 'specific_ischemic_heart']
+
+  const SC_LABEL: Record<string, string> = {
+    cancer_general: '일반암', cancer_expensive: '고액암', cancer_minor: '소액암',
+    cerebrovascular: '뇌혈관', stroke: '뇌졸중', brain_hemorrhage: '뇌출혈',
+    specific_cerebrovascular: '특정뇌혈관', ischemic_heart: '허혈성',
+    ami: '심근경색', specific_ischemic_heart: '특정허혈심장',
+    ci_gi: 'CI/GI', loss: '실손', disability: '장해',
+    surgery: '수술', hospitalization: '입원', death: '사망', other: '기타',
+  }
+
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-3 pt-2.5 pb-2"
+      >
+        <div className="flex items-start gap-2 justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] text-slate-600">
+              <span className="text-slate-700 mr-1">{'❶❷❸❹❺❻❼❽❾'[idx]}</span>
+              {contract.companyName}
+            </p>
+            <p className="text-[11px] text-white font-medium leading-snug mt-0.5 truncate">{contract.productName}</p>
+          </div>
+          <div className="flex flex-wrap gap-1 flex-shrink-0 mt-0.5">
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${
+              contract.isRenewable
+                ? 'bg-red-900/30 text-red-400 border-red-700/40'
+                : 'bg-emerald-900/30 text-emerald-400 border-emerald-700/40'
+            }`}>
+              {contract.isRenewable ? '갱신' : '비갱신'}
+            </span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-md border bg-slate-800/50 text-slate-500 border-slate-700/30">
+              {contract.expiryAge === 9999 ? '종신' : `${contract.expiryAge}세`}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-1.5">
+          <p className="text-[10px] text-slate-600">
+            {contract.isPaidOff
+              ? <span className="text-emerald-700">납입완료</span>
+              : `${contract.monthlyPremium.toLocaleString()}원/월`}
+          </p>
+          <span className="text-[9px] text-slate-700">
+            {expanded ? '▲' : '▼'} 특약 {contract.riders.length}건
+          </span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-white/[0.05] pt-2 space-y-2">
+          {RIDER_GROUPS_COMPACT.map(group => {
+            const items = contract.riders.filter(r => group.cats.includes(r.category))
+            if (items.length === 0) return null
+            return (
+              <div key={group.key}>
+                <p className={`text-[9px] font-bold uppercase tracking-wider mb-1 ${group.color}`}>
+                  {group.label}
+                </p>
+                <div className="space-y-0.5">
+                  {items.map((rider, rIdx) => (
+                    <div key={rIdx} className="flex items-center justify-between gap-1 text-[10px]">
+                      <span className="text-slate-400 min-w-0 flex-1 truncate leading-snug">
+                        {rider.name}
+                        {rider.isRenewable && <span className="text-red-700 ml-1 text-[9px]">갱신</span>}
+                        {NARROW_CATS.includes(rider.category) && <span className="text-orange-700 ml-1 text-[9px]">협소</span>}
+                      </span>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-slate-300 font-medium">{rider.amount.toLocaleString()}만</span>
+                        {rider.expiryAge > 0 && rider.expiryAge !== 9999 && (
+                          <span className={`text-[9px] px-1 py-px rounded ${
+                            rider.expiryAge >= 100 ? 'text-slate-600'
+                            : rider.expiryAge > 80 ? 'text-amber-600'
+                            : 'text-red-700'
+                          }`}>~{rider.expiryAge}세</span>
+                        )}
+                        <span className="text-[9px] text-slate-700">
+                          {SC_LABEL[rider.category] ?? rider.category}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

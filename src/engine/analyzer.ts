@@ -22,8 +22,8 @@ const CANCER_VALID: RiderCategory[] = ['cancer_general']
 const CANCER_EXPENSIVE: RiderCategory[] = ['cancer_expensive']
 
 // 협소범위 카테고리 (PRD: 뇌졸중도 협소 — 뇌혈관질환 > 뇌졸중 > 뇌출혈 순으로 좁아짐)
-const NARROW_SCOPE_BRAIN: RiderCategory[] = ['brain_hemorrhage', 'stroke']
-const NARROW_SCOPE_HEART: RiderCategory[] = ['ami']
+const NARROW_SCOPE_BRAIN: RiderCategory[] = ['brain_hemorrhage', 'stroke', 'specific_cerebrovascular']
+const NARROW_SCOPE_HEART: RiderCategory[] = ['ami', 'specific_ischemic_heart']
 
 /**
  * F1-1: 실질 보장금액 계산
@@ -73,7 +73,7 @@ function getRiderEffectReason(rider: Rider, productType?: InsuranceContract['pro
   if (NARROW_SCOPE_HEART.includes(rider.category)) return '협소범위'
   // 진단금: 만기 100세 미만은 실질 0원 (발병 최고조 시기에 보장 소멸)
   if (DIAGNOSIS_CATS.includes(rider.category) && rider.expiryAge > 0 && rider.expiryAge < 100) {
-    return rider.expiryAge < 80 ? '만기단기' : '보장기간공백'
+    return rider.expiryAge <= 80 ? '만기단기' : '보장기간공백'
   }
   // 진단금 외 (실손·수술·입원 등): 80세 미만만 단기로 처리
   if (!DIAGNOSIS_CATS.includes(rider.category) && rider.expiryAge > 0 && rider.expiryAge < 80) {
@@ -83,7 +83,8 @@ function getRiderEffectReason(rider: Rider, productType?: InsuranceContract['pro
 }
 
 function isRiderEffective(rider: Rider, productType?: InsuranceContract['productType'], contractIsRenewable?: boolean): boolean {
-  return getRiderEffectReason(rider, productType, contractIsRenewable) === '유효'
+  const reason = getRiderEffectReason(rider, productType, contractIsRenewable)
+  return reason === '유효' || reason === '보장기간공백'
 }
 
 /**
@@ -105,7 +106,7 @@ export function tagProblems(contracts: InsuranceContract[], coverage: CoverageAn
       (r) =>
         CORE_DIAGNOSIS_CATS.includes(r.category) &&
         !r.isRenewable &&
-        r.expiryAge > 0 && r.expiryAge < 100
+        r.expiryAge > 80 && r.expiryAge < 100
     )
   )
 
@@ -151,8 +152,14 @@ export function classifyContracts(contracts: InsuranceContract[]): ContractDecis
     // ── 판단 4 자동 정리 조건 ──────────────────────────────────
     // 90세 이하 계약 전체 만기 → 발병 최고조 시기 보장 소멸 → 무조건 정리
     const shortExpiry = contract.expiryAge > 0 && contract.expiryAge < 100
-    const allRenewable = contract.isRenewable
     const isCI = contract.productType === 'ci'
+
+    // 갱신형 판별: CORE_DIAGNOSIS_CATS 기준, 실손만 갱신형인 경우 제외
+    const coreRiders = riders.filter(r => CORE_DIAGNOSIS_CATS.includes(r.category))
+    const coreAllRenewable = coreRiders.length > 0 && coreRiders.every(r => r.isRenewable)
+    const hasRenewableLoss = riders.some(r => r.category === 'loss' && r.isRenewable)
+    const onlyLossRenewable = contract.isRenewable && coreRiders.length > 0 && !coreAllRenewable && hasRenewableLoss
+    const allRenewable = (contract.isRenewable && !onlyLossRenewable) || coreAllRenewable
 
     // 마이헬스 패턴: ALL_DIAG_CATS 기반 (삼성은 ci_gi/stroke/ami 등 포함)
     const allDiagRiders = riders.filter((r) => ALL_DIAG_CATS.includes(r.category) && r.amount > 0)
@@ -160,7 +167,7 @@ export function classifyContracts(contracts: InsuranceContract[]): ContractDecis
       allDiagRiders.length > 0 && allDiagRiders.every((r) => r.isRenewable)
 
     // 핵심 진단금이 모두 협소범위 (CORE_DIAGNOSIS_CATS 기준)
-    const coreDiagRiders = riders.filter((r) => CORE_DIAGNOSIS_CATS.includes(r.category))
+    const coreDiagRiders = coreRiders
     const allNarrow = coreDiagRiders.length > 0 &&
       coreDiagRiders.every((r) => NARROW_SCOPE_BRAIN.includes(r.category) || NARROW_SCOPE_HEART.includes(r.category))
 
@@ -207,8 +214,8 @@ export function classifyContracts(contracts: InsuranceContract[]): ContractDecis
         // 비갱신 100세 이상 후유장해
         riders.some((r) => r.category === 'disability' && !r.isRenewable &&
           (r.expiryAge === 9999 || r.expiryAge >= 100)) ||
-        // 실손보험
-        riders.some((r) => r.category === 'loss') ||
+        // 비갱신 실손보험
+        riders.some((r) => r.category === 'loss' && !r.isRenewable) ||
         // 비갱신 100세 이상 사망보험금
         riders.some((r) => r.category === 'death' && !r.isRenewable &&
           (r.expiryAge === 9999 || r.expiryAge >= 100))
@@ -339,7 +346,7 @@ export function buildCoverageBreakdown(contracts: InsuranceContract[]): Coverage
     for (const rider of contract.riders) {
       const reason = getRiderEffectReason(rider, contract.productType, contract.isRenewable)
       const isEffective = reason === '유효'
-      const effectiveAmount = isEffective ? rider.amount : 0
+      const effectiveAmount = (reason === '유효' || reason === '보장기간공백') ? rider.amount : 0
 
       const base: RiderWithEffect = {
         ...rider,

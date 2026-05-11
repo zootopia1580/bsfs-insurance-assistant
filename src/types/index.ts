@@ -3,8 +3,10 @@ export type RiderCategory =
   | 'cancer_expensive' // 고액암 — 회색
   | 'cancer_minor'     // 소액암/유사암 — 회색
   | 'brain_hemorrhage' // 뇌출혈 — 협소범위, 회색
+  | 'specific_cerebrovascular'   // 특정뇌혈관질환 — 협소범위
   | 'stroke'           // 뇌졸중 — 협소범위, 회색
   | 'cerebrovascular'  // 뇌혈관질환 — 중요 (착색)
+  | 'specific_ischemic_heart'    // 특정허혈성심장질환 — 협소범위
   | 'ami'              // 급성심근경색 — 협소범위, 회색
   | 'ischemic_heart'   // 허혈성심장질환 — 중요 (착색)
   | 'ci_gi'

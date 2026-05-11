@@ -16,12 +16,12 @@ const RIDER_CATEGORY_PATTERNS: Array<{ pattern: RegExp; category: RiderCategory 
   { pattern: /\d+대\s*질병수술비|질병\d+[~-]\d+종수술비|질병수술비/, category: 'surgery' },
   { pattern: /상해수술비|재해수술비/, category: 'surgery' },
   // ── 뇌: 특정(협소) 먼저, 그 다음 넓은 범위 ──
-  { pattern: /특정\s*뇌혈관질환/, category: 'stroke' },   // 협소범위
+  { pattern: /특정\s*뇌혈관질환/, category: 'specific_cerebrovascular' },   // 협소범위
   { pattern: /뇌혈관질환/, category: 'cerebrovascular' }, // 넓은 범위
   { pattern: /뇌졸중/, category: 'stroke' },
   { pattern: /뇌출혈/, category: 'brain_hemorrhage' },
   // ── 심장: 특정(협소) 먼저, 그 다음 넓은 범위 ──
-  { pattern: /특정\s*허혈성심장질환|특정\s*허혈심장/, category: 'ami' },  // 협소범위
+  { pattern: /특정\s*허혈성심장질환|특정\s*허혈심장/, category: 'specific_ischemic_heart' },  // 협소범위
   { pattern: /허혈성심장질환|허혈심장질환|허혈성\s*심장/, category: 'ischemic_heart' },
   { pattern: /급성심근경색|주요심장질환/, category: 'ami' },
   // ── CI/GI 구조 담보 — 암·뇌·심장 폴백보다 먼저 체크 ──
