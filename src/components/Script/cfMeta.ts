@@ -13,7 +13,7 @@ export const CF_META = {
     goal: '3대 진단금 부족 + 갱신형·협소범위 문제 수치로 납득',
     customerState: '"어? 내 보험이 이상한가?" 의심이 생기기 시작하는 상태',
     counselorFocus: '숫자로 보여주기 → 고객이 스스로 깨닫게 → 변화 필요성 자각',
-    mds: ['MD2-1', 'MD2-2', 'MD2-3a', 'MD2-4', 'MD2-5'],
+    mds: ['MD2-1', 'MD2-2', 'MD2-3a', 'MD2-4', 'MD2-5', 'MD2-6', 'MD2-7'],
   },
   CF3: {
     label: '솔루션 확정',
@@ -29,7 +29,7 @@ export const CF_META = {
     goal: '저항 유형별 맞춤 대응 → 전자서명 완료',
     customerState: '"하긴 해야 할 것 같은데…" 망설임 · 구체적 걸림돌 존재',
     counselorFocus: '저항 이유 파악 → 유형별 IF 대응 → 결정 후 바로 진행',
-    mds: ['MD4-2', 'MD4-3'],
+    mds: ['MD4-2', 'MD4-3', 'MD4-4'],
   },
   CF5: {
     label: '클로징',
@@ -45,19 +45,13 @@ export const CF_ORDER = ['CF1', 'CF2', 'CF3', 'CF4', 'CF5'] as const
 
 export type CFId = keyof typeof CF_META
 
-// MD 이후 상황에 따라 선택하는 병렬 변형 스크립트
-export const MD_VARIANTS: Record<string, string[]> = {
-  'MD2-2':  ['MD2-2b'],
-  'MD2-3a': ['MD2-3b', 'MD2-3c'],
-}
+// MD 이후 상황에 따라 선택하는 병렬 변형 스크립트 (IF 분기 상황별 대응)
+export const MD_VARIANTS: Record<string, string[]> = {}
 
 // CF4 저항 처리 분기 (고객 반응 감지 시 활성화)
 export const RESISTANCE_BRANCHES = ['MD4-1a', 'MD4-1b', 'MD4-1c', 'MD4-1d', 'MD4-1e']
 
 export const BRANCH_LABELS: Record<string, string> = {
-  'MD2-2b': '"암 분명 있는데 왜요?" 반론 대응',
-  'MD2-3b': '협소범위 계약일 때',
-  'MD2-3c': 'CI·GI 계약일 때',
   'MD4-1a': '가족 상의 후 결정',
   'MD4-1b': '해지 부담 감소',
   'MD4-1c': '추가 보험료 우려',

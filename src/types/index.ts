@@ -145,5 +145,5 @@ export type MDStage =
   | 'MD2-4' | 'MD2-5' | 'MD2-6' | 'MD2-7'
   | 'MD3-1' | 'MD3-2' | 'MD3-3'
   | 'MD4-1a' | 'MD4-1b' | 'MD4-1c' | 'MD4-1d' | 'MD4-1e'
-  | 'MD4-2' | 'MD4-3'
+  | 'MD4-2' | 'MD4-3' | 'MD4-4'
   | 'MD5-1' | 'MD5-2'

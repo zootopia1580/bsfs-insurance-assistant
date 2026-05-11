@@ -45,9 +45,9 @@ interface AppState {
 
 const CF_MD_MAP: Record<CFStage, MDStage[]> = {
   CF1: ['MD1-1', 'MD1-2', 'MD1-3', 'MD1-4'],
-  CF2: ['MD2-1', 'MD2-2', 'MD2-3a', 'MD2-4', 'MD2-5'],
+  CF2: ['MD2-1', 'MD2-2', 'MD2-3a', 'MD2-4', 'MD2-5', 'MD2-6', 'MD2-7'],
   CF3: ['MD3-1', 'MD3-2', 'MD3-3'],
-  CF4: ['MD4-2', 'MD4-3'],
+  CF4: ['MD4-2', 'MD4-3', 'MD4-4'],
   CF5: ['MD5-1', 'MD5-2'],
 }
 

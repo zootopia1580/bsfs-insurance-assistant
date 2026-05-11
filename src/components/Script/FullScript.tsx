@@ -2,30 +2,210 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../store'
 import { CF_META, CF_ORDER, MD_VARIANTS, RESISTANCE_BRANCHES, BRANCH_LABELS, type CFId } from './cfMeta'
 import { IF_SCRIPTS } from '../Guide/ifScripts'
-import type { MDStage, RiderWithEffect } from '../../types'
+import type { MDStage, RiderWithEffect, InsuranceContract } from '../../types'
 import { firstName } from '../../utils'
 
 // ── 모듈 레벨 상수 ─────────────────────────────────────────────────────────────
-const REASON_LABEL: Record<string, string> = {
-  '유효': '✓ 유효',
-  '갱신형': '✗ 갱신형 (실질 0원)',
-  '협소범위': '✗ 협소범위 (실질 0원)',
-  'CI/GI구조': '✗ CI/GI구조 (실질 0원)',
-  '만기단기': '✗ 만기 짧음 (실질 0원)',
-  '해당없음': '✗ 해당없음 (실질 0원)',
-}
-
 const DIRECTION_LABEL: Record<string, string> = { keep: '유지', terminate: '정리', adjust: '일부 조정' }
 
-function buildRiderList(riders: RiderWithEffect[]): string {
-  if (!riders.length) return '해당 담보 없음'
-  return riders.map(r => {
-    const label = REASON_LABEL[r.effectReason] ?? r.effectReason
-    const amtStr = r.effectiveAmount > 0
-      ? `${r.effectiveAmount.toLocaleString()}만`
-      : `${r.amount.toLocaleString()}만 → ${label}`
-    return `• ${r.name} ${amtStr}`
-  }).join('\n')
+// 보험사 단축명
+const COMPANY_SHORT: Record<string, string> = {
+  '삼성화재': '삼성화재', 'DB손해보험': 'DB손보', 'KB손해보험': 'KB손보',
+  '현대해상': '현대해상', '메리츠화재': '메리츠', '미래에셋생명': '미래에셋',
+  '동양생명': '동양', '우체국보험': '우체국', 'AIA생명': 'AIA',
+  '한화생명': '한화', '교보생명': '교보', '흥국화재': '흥국',
+  '롯데손해보험': '롯데손보', '삼성생명': '삼성생명',
+}
+
+// 보험사 고객센터 번호
+const PHONE_MAP: Record<string, string> = {
+  '삼성화재': '1588-5114', '현대해상': '1588-5656', 'DB손해보험': '1588-0100',
+  '메리츠화재': '1566-7711', '롯데손해보험': '1588-3344', '우체국보험': '1588-1900',
+  'AIA생명': '1588-9898', '흥국화재': '1688-1688', '동양생명': '1577-1004',
+  'KB손해보험': '1544-0114', '미래에셋생명': '1588-0220', '삼성생명': '1588-3114',
+  '한화생명': '1588-2488', '교보생명': '1588-1001',
+}
+
+// 상품명 단축 (브랜드명/불필요 접두어 제거)
+function shortProductName(productName: string, companyName?: string): string {
+  let s = productName
+  if (companyName) s = s.replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '')
+  return s
+    .replace(/^\(무\)\s*/, '').replace(/^무배당\s*/, '')
+    .replace(/무해지환급형?\s*/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 18) || productName.slice(0, 18)
+}
+
+// 한국어 종성 여부 → 은/는, 이랑/랑 조사 선택
+function hasJongseong(word: string): boolean {
+  const last = word.trim().at(-1)
+  if (!last) return false
+  const code = last.charCodeAt(0)
+  if (code >= 0xAC00 && code <= 0xD7A3) return (code - 0xAC00) % 28 !== 0
+  return false
+}
+const eunNeun  = (w: string) => hasJongseong(w) ? '은' : '는'
+const irangRang = (w: string) => hasJongseong(w) ? '이랑' : '랑'
+
+// 담보목록 카톡 발화 빌더
+function buildRiderNarrative(
+  riders: RiderWithEffect[],
+  contracts: InsuranceContract[],
+  catLabel: '암' | '뇌혈관' | '허혈심장',
+  effectiveTotal: number,
+): string {
+  if (!riders.length) return `결국 실질 ${catLabel} 진단금은 0원이에요.`
+
+  const getContract = (id: string) => contracts.find(c => c.id === id)
+
+  // 계약별 단축 표시명 생성
+  const contractIds = [...new Set(riders.map(r => r.contractId))]
+  const companyCountMap: Record<string, number> = {}
+  contractIds.forEach(id => {
+    const co = getContract(id)?.companyName ?? ''
+    companyCountMap[co] = (companyCountMap[co] ?? 0) + 1
+  })
+
+  function shortName(contractId: string): string {
+    const c = getContract(contractId)
+    if (!c) return contractId
+    const base = COMPANY_SHORT[c.companyName] ?? c.companyName
+    if (companyCountMap[c.companyName] > 1) {
+      // 같은 보험사 계약이 여러 개 → 상품명 약어 추가
+      const abbr = c.productName
+        .replace(/^\(무\)\s*/, '').replace(/무배당\s*/,'').replace(/무해지환급형?\s*/,'')
+        .replace(c.companyName, '')
+        .replace(/비갱신|건강보험|실손|의료|종신|어린이|손해|생명|화재/g, '')
+        .replace(/\s+/g, ' ').trim().slice(0, 8)
+      if (abbr.length > 1) return `${base} ${abbr}`
+    }
+    return base
+  }
+
+  const lines: string[] = []
+
+  // ── 1) 유효 담보 (✅) ──────────────────────────────────────────────
+  const effective = riders.filter(r => r.effectReason === '유효' && r.effectiveAmount > 0)
+  effective.forEach(r => {
+    const sn = shortName(r.contractId)
+    const expiryStr = r.expiryAge >= 8000 ? '종신' : `${r.expiryAge}세`
+    lines.push(`${sn} ${r.name}에 ${r.effectiveAmount.toLocaleString()}만원이 있어요. 비갱신 ${expiryStr}라 실제로 작동해요. ✅`)
+  })
+
+  // ── 2) 부분인정 담보 (⚠️ 보장기간공백) ─────────────────────────────
+  const partial = riders.filter(r => r.effectReason === '보장기간공백' && r.effectiveAmount > 0)
+  partial.forEach(r => {
+    const sn = shortName(r.contractId)
+    lines.push(`${sn} ${r.name}${eunNeun(r.name)} ${r.expiryAge}세 만기예요. ${r.expiryAge}세까지 ${r.effectiveAmount.toLocaleString()}만원 부분 인정이에요. ⚠️`)
+  })
+
+  // ── 3) 실질 0원 담보 — 계약별 묶기 후 같은 사유 합산 ────────────────
+  const ineffective = riders.filter(r => r.effectiveAmount === 0)
+
+  // 계약별 그룹화
+  type ContractGroup = { sn: string; riders: RiderWithEffect[]; reason: string; expiryAge: number }
+  const byContract: Record<string, ContractGroup> = {}
+  ineffective.forEach(r => {
+    if (!byContract[r.contractId]) {
+      byContract[r.contractId] = { sn: shortName(r.contractId), riders: [], reason: r.effectReason, expiryAge: r.expiryAge }
+    }
+    byContract[r.contractId].riders.push(r)
+  })
+
+  // 같은 reason + expiryAge 끼리 회사명 묶기
+  type MergedGroup = { names: string[]; reason: string; expiryAge: number; riders: RiderWithEffect[] }
+  const merged: MergedGroup[] = []
+
+  Object.values(byContract).forEach(cg => {
+    // 같은 계약 내 담보가 모두 같은 reason인지 확인
+    const reasons = [...new Set(cg.riders.map(r => r.effectReason))]
+    const expiries = [...new Set(cg.riders.map(r => r.expiryAge))]
+    const key = reasons.length === 1 && expiries.length === 1
+      ? `${reasons[0]}:${expiries[0]}`
+      : `unique:${cg.sn}`
+
+    const existing = merged.find(m => `${m.reason}:${m.expiryAge}` === key)
+    if (existing && reasons.length === 1 && expiries.length === 1) {
+      if (!existing.names.includes(cg.sn)) existing.names.push(cg.sn)
+      existing.riders.push(...cg.riders)
+    } else {
+      merged.push({
+        names: [cg.sn],
+        reason: reasons.length === 1 ? reasons[0] : cg.reason,
+        expiryAge: expiries.length === 1 ? expiries[0] : cg.expiryAge,
+        riders: [...cg.riders],
+      })
+    }
+  })
+
+  const narrowDisease: Record<string, string> = {
+    '암': '일반암', '뇌혈관': '뇌경색', '허혈심장': '협심증',
+  }
+
+  merged.forEach(({ names, reason, expiryAge, riders: mRiders }) => {
+    // 2개 이상 회사 → "A이랑 B는"
+    const namesStr = names.length === 1
+      ? names[0]
+      : names.slice(0, -1).join(', ') + irangRang(names.at(-2)!) + ' ' + names.at(-1)!
+    const particle = eunNeun(names.at(-1)!)
+
+    const allSameReason = new Set(mRiders.map(r => r.effectReason)).size === 1
+
+    if (allSameReason) {
+      if (reason === '갱신형') {
+        if (mRiders.length > 1) {
+          lines.push(`${namesStr}${particle} 전체 갱신형이에요. ${catLabel} 관련 담보 전부 실질 0원이에요.`)
+        } else {
+          const minExpiry = Math.min(...mRiders.map(r => r.expiryAge).filter(a => a < 8000))
+          lines.push(`${namesStr}${particle} 갱신형이에요. ${minExpiry}세에 소멸돼요.`)
+        }
+      } else if (reason === '만기단기') {
+        lines.push(`${namesStr}${particle} ${expiryAge}세 만기예요. 가장 필요한 시기에 보장이 끊기는 구조예요.`)
+      } else if (reason === '협소범위') {
+        const disease = narrowDisease[catLabel]
+        if (mRiders.length === 1) {
+          lines.push(`${namesStr} ${mRiders[0].name}은 협소범위예요. 가장 흔한 ${disease}은 해당이 안 돼요.`)
+        } else {
+          lines.push(`${namesStr}${particle} 협소범위예요. 가장 흔한 ${disease}은 해당이 안 돼요.`)
+        }
+      } else if (reason === 'CI/GI구조') {
+        lines.push(`${namesStr}${particle} CI구조예요. 일반 진단으로는 받기 어려워요.`)
+      } else if (reason === '해당없음') {
+        lines.push(`${namesStr}${particle} 해당 없는 담보예요.`)
+      }
+    } else {
+      // 같은 계약 내 담보가 다른 사유 → 각각 표기
+      mRiders.forEach(r => {
+        const sn = shortName(r.contractId)
+        if (r.effectReason === '갱신형') {
+          lines.push(`${sn} ${r.name}은 갱신형이에요. ${r.expiryAge}세에 소멸돼요.`)
+        } else if (r.effectReason === '만기단기') {
+          lines.push(`${sn} ${r.name}은 ${r.expiryAge}세 만기예요. 가장 필요한 시기에 끊기는 구조예요.`)
+        } else if (r.effectReason === '협소범위') {
+          lines.push(`${sn} ${r.name}은 협소범위예요. 가장 흔한 ${narrowDisease[catLabel]}은 해당이 안 돼요.`)
+        } else if (r.effectReason === 'CI/GI구조') {
+          lines.push(`${sn}은 CI구조예요.`)
+        }
+      })
+    }
+  })
+
+  // ── 4) 결론 ─────────────────────────────────────────────────────────
+  lines.push(`결국 실질 ${catLabel} 진단금은 ${effectiveTotal > 0 ? effectiveTotal.toLocaleString() + '만원' : '0원'}이에요.`)
+
+  return lines.join(' ')
+}
+
+function buildPartialCoverage(riders: RiderWithEffect[]): string {
+  const partial = riders.filter(r => r.effectReason === '보장기간공백' && r.effectiveAmount > 0)
+  if (!partial.length) return ''
+  const groups: Record<number, number> = {}
+  partial.forEach(r => { groups[r.expiryAge] = (groups[r.expiryAge] ?? 0) + r.effectiveAmount })
+  const desc = Object.entries(groups)
+    .map(([age, amt]) => `${age}세까지 +${amt.toLocaleString()}만`)
+    .join(', ')
+  return ` (${desc})`
 }
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -378,10 +558,15 @@ export function FullScript() {
     const analysis = customerData?.analysis
     if (!info || !analysis) return text
 
-    // 보험사 목록 (중복 제거, "삼성화재, 한화생명, ..." 형태)
+    // ── 고객 기본 정보 ───────────────────────────────────────────────
+    const name = firstName(info.name)
+    const age = info.age.toString()
+    const gender = info.gender === 'M' ? '남' : '여'
+
+    // ── 보험 현황 ────────────────────────────────────────────────────
     const companyList = [...new Set(customerData.contracts.map(c => c.companyName).filter(Boolean))].join(', ')
 
-    // 계약별 처리 방향 요약
+    // ── 계약별 처리 방향 요약 ────────────────────────────────────────
     const contractDecisions = analysis.decisions.map(d => {
       const c = customerData.contracts.find(ct => ct.id === d.contractId)
       if (!c) return ''
@@ -389,27 +574,143 @@ export function FullScript() {
       return `${c.companyName} ${c.productName} — 월 ${c.monthlyPremium.toLocaleString()}원 → ${dir}\n${d.reason}`
     }).filter(Boolean).join('\n\n')
 
+    // ── 만기보장 (81~99세 부분인정) ──────────────────────────────────
+    const cancerPartial = buildPartialCoverage(analysis.breakdown.cancer)
+    const brainPartial  = buildPartialCoverage(analysis.breakdown.brain)
+    const heartPartial  = buildPartialCoverage(analysis.breakdown.heart)
+
+    // ── 해약환급금 합산 ──────────────────────────────────────────────
+    const surrenderMin = analysis.surrenderValues.reduce((s, v) => s + v.minValue, 0)
+    const surrenderMax = analysis.surrenderValues.reduce((s, v) => s + v.maxValue, 0)
+
+    // ── 설계 결과 (Plan A) ───────────────────────────────────────────
+    const newCompany = newPlanData?.contracts.map(c => c.companyName).join(', ') ?? '[새설계안 미입력]'
+    const newCount   = newPlanData ? newPlanData.contracts.length.toString() : '[새설계안 미입력]'
+    const newTotal   = newPlanData?.totalMonthlyPremium.toLocaleString() ?? '[새설계안 미입력]'
+    const newList    = newPlanData
+      ? newPlanData.contracts.map(c => `• ${c.companyName} ${c.productName} — 월 ${c.monthlyPremium.toLocaleString()}원`).join('\n')
+      : '[새설계안 미입력]'
+    const firstNewPremium = newPlanData?.contracts[0]?.monthlyPremium.toLocaleString() ?? '[새설계안 미입력]'
+
+    // ── 정리합계 (terminate 대상 월보험료 합산) ──────────────────────
+    const terminateSum = analysis.decisions
+      .filter(d => d.direction === 'terminate')
+      .reduce((s, d) => {
+        const c = customerData.contracts.find(ct => ct.id === d.contractId)
+        return s + (c?.monthlyPremium ?? 0)
+      }, 0)
+    const terminateList = analysis.decisions
+      .filter(d => d.direction === 'terminate')
+      .map(d => {
+        const c = customerData.contracts.find(ct => ct.id === d.contractId)
+        if (!c) return ''
+        const co = COMPANY_SHORT[c.companyName] ?? c.companyName
+        const phone = PHONE_MAP[c.companyName] ?? '고객센터'
+        return `• ${co} ${shortProductName(c.productName, c.companyName)} → ${c.companyName} 앱 또는 ${phone}`
+      }).filter(Boolean).join('\n')
+
+    // ── 계약별 방향 발화 (자동 생성) ─────────────────────────────────
+    const buildDirectionText = (dir: 'keep' | 'terminate' | 'adjust') => {
+      const label = { keep: '유지', terminate: '정리', adjust: '일부 조정' }[dir]
+      const items = analysis.decisions
+        .filter(d => d.direction === dir)
+        .map(d => {
+          const c = customerData.contracts.find(ct => ct.id === d.contractId)
+          if (!c) return ''
+          const co = COMPANY_SHORT[c.companyName] ?? c.companyName
+          const prod = shortProductName(c.productName, c.companyName)
+          return `${co} ${prod} — 월 ${c.monthlyPremium.toLocaleString()}원 → ${label}\n${d.reason}`
+        }).filter(Boolean)
+      return items.length ? items.join('\n\n') : `(${label} 대상 없음)`
+    }
+
+    // ── 해약환급금 발화 (자동 생성) ──────────────────────────────────
+    const surrenderText = analysis.surrenderValues.length
+      ? analysis.surrenderValues.map(sv => {
+          const c = customerData.contracts.find(ct => ct.id === sv.contractId)
+          const co = c ? (COMPANY_SHORT[c.companyName] ?? c.companyName) : ''
+          const prod = c ? shortProductName(sv.productName, c.companyName) : sv.productName.slice(0, 18)
+          const minV = Math.round(sv.minValue / 10000).toLocaleString()
+          const maxV = Math.round(sv.maxValue / 10000).toLocaleString()
+          return `${co} ${prod} → 약 ${minV}만~${maxV}만원 추정\n(${sv.basis})`
+        }).join('\n\n')
+      : '해약환급금 추정값 없음'
+
+    // ── 변경 후 월보험료 & 절감액 ────────────────────────────────────
+    const newMonthly   = newPlanData
+      ? analysis.effectiveMonthlyPremium - terminateSum + newPlanData.totalMonthlyPremium
+      : 0
+    const savings = newPlanData ? analysis.effectiveMonthlyPremium - newMonthly : 0
+
+    // ── 부족액 ───────────────────────────────────────────────────────
+    const cancerShort  = Math.max(0, 5000 - analysis.coverage.cancerActual)
+    const brainShort   = Math.max(0, 3000 - analysis.coverage.brainActual)
+    const heartShort   = Math.max(0, 3000 - analysis.coverage.heartActual)
+
+    // ── 실손 여부 ────────────────────────────────────────────────────
+    const hasLoss = customerData.contracts.some(c => c.riders.some(r => r.category === 'loss'))
+    const lossStr = hasLoss ? '있음' : '없음 (신규 5세대 실손 추가 필요)'
+
     return text
-      .replace(/{이름}/g, firstName(info.name))
+      // 고객 기본
+      .replace(/{이름}/g, name)
       .replace(/{상담사}/g, consultantName)
+      .replace(/{나이}/g, age)
+      .replace(/{성별}/g, gender)
+      .replace(/{상령일}/g, info.anniversaryDate || '[상령일 없음]')
+      // 보험 현황
       .replace(/{보험사목록}/g, companyList || '[보험사 정보 없음]')
-      .replace(/{월보험료}/g, analysis.effectiveMonthlyPremium.toLocaleString())
       .replace(/{보험수}/g, customerData.contracts.length.toString())
+      .replace(/{월보험료}/g, analysis.totalMonthlyPremium.toLocaleString())
+      .replace(/{실납입보험료}/g, analysis.effectiveMonthlyPremium.toLocaleString())
+      // 실질 보장
       .replace(/{암실질}/g, analysis.coverage.cancerActual.toLocaleString())
       .replace(/{뇌실질}/g, analysis.coverage.brainActual.toLocaleString())
       .replace(/{심장실질}/g, analysis.coverage.heartActual.toLocaleString())
-      .replace(/{암담보목록}/g, buildRiderList(analysis.breakdown.cancer))
-      .replace(/{뇌담보목록}/g, buildRiderList(analysis.breakdown.brain))
-      .replace(/{심담보목록}/g, buildRiderList(analysis.breakdown.heart))
+      // 만기보장 (부분인정)
+      .replace(/{암만기보장}/g, cancerPartial)
+      .replace(/{뇌만기보장}/g, brainPartial)
+      .replace(/{심장만기보장}/g, heartPartial)
+      // 담보 목록 (카톡 발화 서술형)
+      .replace(/{암담보목록}/g, buildRiderNarrative(analysis.breakdown.cancer, customerData.contracts, '암', analysis.coverage.cancerActual))
+      .replace(/{뇌담보목록}/g, buildRiderNarrative(analysis.breakdown.brain, customerData.contracts, '뇌혈관', analysis.coverage.brainActual))
+      .replace(/{심담보목록}/g, buildRiderNarrative(analysis.breakdown.heart, customerData.contracts, '허혈심장', analysis.coverage.heartActual))
+      // 처리 방향
       .replace(/{계약별처리방향}/g, contractDecisions || '[분석 결과 없음]')
-      .replace(/{새월보험료}/g, newPlanData?.totalMonthlyPremium.toLocaleString() ?? '[새설계안 미입력]')
-      .replace(/{새암진단금}/g, newPlanData?.coverageCancer.toLocaleString() ?? '[새설계안 미입력]')
-      .replace(/{새뇌진단금}/g, newPlanData?.coverageBrain.toLocaleString() ?? '[새설계안 미입력]')
-      .replace(/{새심장진단금}/g, newPlanData?.coverageHeart.toLocaleString() ?? '[새설계안 미입력]')
-      .replace(/{새보험사}/g, newPlanData?.contracts.map(c => c.companyName).join(', ') ?? '[새설계안 미입력]')
+      .replace(/{정리계약_발화}/g, buildDirectionText('terminate'))
+      .replace(/{유지계약_발화}/g, buildDirectionText('keep'))
+      .replace(/{조정계약_발화}/g, buildDirectionText('adjust'))
+      // 해약환급금
+      .replace(/{해약환급금하한}/g, surrenderMin > 0 ? Math.round(surrenderMin / 10000).toLocaleString() : '[추정불가]')
+      .replace(/{해약환급금상한}/g, surrenderMax > 0 ? Math.round(surrenderMax / 10000).toLocaleString() : '[추정불가]')
+      .replace(/{해약환급금_발화}/g, surrenderText)
+      // 설계 결과
+      .replace(/{신규보험사}/g, newCompany)
+      .replace(/{신규보험료}/g, firstNewPremium)
+      .replace(/{신규건수}/g, newCount)
+      .replace(/{신규합계}/g, newTotal)
+      .replace(/{신규보험목록}/g, newList)
+      // 목표치
+      .replace(/{암목표}/g, '5,000만')
+      .replace(/{뇌목표}/g, '3,000만')
+      .replace(/{심장목표}/g, '3,000만')
+      // 정리합계 & 변경후 계산
+      .replace(/{정리합계}/g, terminateSum > 0 ? terminateSum.toLocaleString() : '[분석 결과 없음]')
+      .replace(/{정리보험목록}/g, terminateList || '[정리 대상 없음]')
+      .replace(/{변경후월보험료}/g, newPlanData ? newMonthly.toLocaleString() : '[새설계안 미입력]')
+      .replace(/{절감액}/g, newPlanData ? savings.toLocaleString() : '[새설계안 미입력]')
+      // 부족액
+      .replace(/{암부족액}/g, cancerShort.toLocaleString())
+      .replace(/{뇌부족액}/g, brainShort.toLocaleString())
+      .replace(/{심장부족액}/g, heartShort.toLocaleString())
+      // 실손
+      .replace(/{실손여부}/g, lossStr)
+      // Plan B
       .replace(/{B안월보험료}/g, newPlanB?.totalMonthlyPremium.toLocaleString() ?? '[B안 미입력]')
-      .replace(/{B안암진단금}/g, newPlanB?.coverageCancer.toLocaleString() ?? '[B안 미입력]')
-      .replace(/{B안보험사}/g, newPlanB?.contracts.map(c => c.companyName).join(', ') ?? '[B안 미입력]')
+      .replace(/{A보험료}/g, newPlanData?.totalMonthlyPremium.toLocaleString() ?? '[A안 미입력]')
+      .replace(/{B보험료}/g, newPlanB?.totalMonthlyPremium.toLocaleString() ?? '[B안 미입력]')
+      // 해지 안내 목록
+      .replace(/{해지안내목록}/g, terminateList || '[정리 대상 없음]')
   }
 
   function handleCopy(text: string, id: string) {
