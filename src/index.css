@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ──────────────────────────────────────────────────────────── */
+:root {
+  --duration-fast:  100ms;
+  --duration-base:  180ms;
+  --duration-slow:  300ms;
+  --ease-out:       cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Base reset ─────────────────────────────────────────────────────────────── */
+@layer base {
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #080e1c;
+    color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo',
+                 'Noto Sans KR', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar        { width: 4px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+}
+
+/* ── Component tokens ───────────────────────────────────────────────────────── */
+@layer components {
+
+  /* ── 카드 — 외곽선 없이 그림자로 깊이 표현 ── */
+  .card {
+    background: #111827;
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  /* 패널 내부의 작은 중첩 카드 */
+  .card-inner {
+    background: rgba(255,255,255,0.03);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* ── 버튼 ── */
+  .btn-primary {
+    @apply text-white text-sm font-medium px-4 py-2 rounded-lg
+           transition-all duration-[100ms];
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    box-shadow: 0 1px 8px rgba(59,130,246,0.35);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+    box-shadow: 0 2px 12px rgba(59,130,246,0.45);
+  }
+  .btn-primary:active {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    box-shadow: none;
+  }
+
+  .btn-secondary {
+    @apply text-slate-300 text-sm font-medium px-4 py-2 rounded-lg
+           transition-all duration-[100ms];
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.09);
+  }
+  .btn-secondary:hover {
+    background: rgba(255,255,255,0.10);
+    color: #f1f5f9;
+  }
+  .btn-secondary:active {
+    background: rgba(255,255,255,0.04);
+  }
+
+  /* ── Coverage / Decision 배지 ── */
+  .badge-keep     { @apply bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-emerald-500/20; }
+  .badge-adjust   { @apply bg-yellow-500/10  text-yellow-400  px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-yellow-500/20; }
+  .badge-terminate{ @apply bg-red-500/10     text-red-400     px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-red-500/20; }
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-in {
+  animation: fadeInUp var(--duration-base) var(--ease-out) both;
+}
+
+.animate-fade {
+  animation: fadeIn var(--duration-base) var(--ease-out) both;
+}
+
+/* Stagger children */
+.stagger-children > * { animation: fadeInUp var(--duration-base) var(--ease-out) both; }
+.stagger-children > *:nth-child(1) { animation-delay:  0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 40ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(4) { animation-delay:120ms; }
+.stagger-children > *:nth-child(5) { animation-delay:160ms; }
